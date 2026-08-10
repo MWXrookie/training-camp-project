@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recall-ai.local/schemas/trial-analysis-result.schema.json",
+  "title": "Recall AI Trial Analysis Result",
+  "type": "object",
+  "oneOf": [
+    {
+      "required": ["data", "request_id"],
+      "properties": {
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "stem",
+            "student_answer",
+            "correct_answer",
+            "knowledge_tags",
+            "error_type",
+            "explanation",
+            "risk_flags"
+          ],
+          "properties": {
+            "stem": {
+              "type": "string",
+              "minLength": 1
+            },
+            "student_answer": {
+              "type": ["string", "null"]
+            },
+            "correct_answer": {
+              "type": ["string", "null"]
+            },
+            "knowledge_tags": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "error_type": {
+              "type": "string",
+              "enum": [
+                "sign_error",
+                "concept_gap",
+                "calculation_error",
+                "reading_error",
+                "missing_steps",
+                "insufficient_information"
+              ]
+            },
+            "explanation": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["hint", "key_steps", "full_solution"],
+              "properties": {
+                "hint": {
+                  "type": "string"
+                },
+                "key_steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "full_solution": {
+                  "type": "string"
+                }
+              }
+            },
+            "risk_flags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "low_image_quality",
+                  "formula_uncertain",
+                  "student_answer_missing",
+                  "answer_uncertain",
+                  "unsupported_question_type"
+                ]
+              }
+            }
+          }
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "required": ["error", "request_id"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "details"],
+          "properties": {
+            "code": {
+              "type": "string",
+              "enum": [
+                "validation_failed",
+                "consent_required",
+                "rate_limited",
+                "model_failed",
+                "schema_failed",
+                "not_question"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "details": {
+              "type": "object"
+            }
+          }
+        },
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

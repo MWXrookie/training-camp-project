@@ -1,9 +1,56 @@
 # AI 错题本系统架构图
 
-版本：V1.0  
+版本：V1.1  
 对应文档：[AI 错题本技术方案](AI错题本技术方案.md)
 
-## 总体架构
+## 分阶段架构
+
+### 三天受控试用版
+
+```mermaid
+flowchart TB
+    USER[3-5 名受控成年测试者]
+    WEB[Next.js Web\n首页 / 上传 / 确认 / 错题 / 复习 / 我的]
+    ROUTE[Route Handler\n/api/trial/analyze]
+    GUARD[访问口令 / 告知版本\n文件校验 / 限额 / 支出熔断]
+    ADAPTER[Multimodal Model Adapter]
+    SCHEMA[JSON Schema / 风险标志\n错误拦截]
+    MODEL[经审核配置的多模态模型]
+    IDB[(IndexedDB\n已确认题目 / 便签 / 复习记录)]
+    FEEDBACK[复习后 AI 复盘\n本次观察 / 可能卡点 / 下次检查]
+
+    USER --> WEB
+    WEB -->|临时发送单题图片| ROUTE
+    ROUTE --> GUARD
+    GUARD --> ADAPTER
+    ADAPTER --> MODEL
+    MODEL --> ADAPTER
+    ADAPTER --> SCHEMA
+    SCHEMA -->|结构化候选| WEB
+    WEB -->|用户确认后| IDB
+    WEB -->|提交作答与自评| FEEDBACK
+    FEEDBACK --> MODEL
+    FEEDBACK -->|复盘结果，不覆盖用户便签| IDB
+    IDB --> WEB
+```
+
+试用版服务端不保存原图和结构化题目。图片只在单次分析请求中临时处理；确认后的题目、便签和复习记录保存在浏览器本机。该架构仅用于验证体验，不对外承诺跨设备、备份、恢复、正式身份或未成年人数据权利能力。
+
+### 架构升级路径
+
+```mermaid
+flowchart LR
+    T[三天试用版\n单 Next.js + IndexedDB] --> G{体验验证门槛}
+    G -->|不通过| R[调整核心体验后再测\n或停止投入]
+    G -->|通过| S[完整 MVP 技术 Spike\n题型 / OCR / 模型 / 合规]
+    S --> F[模块化单体\nNext.js + FastAPI + Worker]
+    F --> P[5 人种子测试]
+    P --> I[20-50 人邀请制试点]
+```
+
+试用版到完整 MVP 的稳定边界是：确认页字段 Schema、用户确认状态、个人便签、复习评分枚举和核心页面语言。临时访问口令、IndexedDB 数据层、同步模型请求和单供应商实现均可替换，不作为兼容承诺。
+
+## 完整 MVP 总体架构
 
 ```mermaid
 flowchart TB

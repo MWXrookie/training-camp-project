@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recall AI 错题本 | 本地试用版</title>
+  <meta name="description" content="Recall AI 错题本本地试用版：上传、确认、复习、记录便签和管理本机错题。" />
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">R</div>
+        <div>
+          <div class="brand-title">Recall AI 错题本</div>
+          <div class="brand-subtitle">本地试用版 · 错题复习工作台</div>
+        </div>
+      </div>
+
+      <div class="topbar-meta">
+        <span class="meta-chip" id="syncChip">本机保存</span>
+        <span class="meta-chip meta-chip-soft" id="todayChip">加载中</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="hero-band">
+        <div class="hero-copy" id="heroCopy">
+          <p class="eyebrow">先确认，再入库</p>
+          <h1>今天要处理哪道错题？</h1>
+          <p class="hero-text">
+            这是一个可直接使用的本地 Web 端错题本。图片会先生成待确认草稿，确认后才进入错题库和复习队列。
+          </p>
+
+          <div class="hero-actions">
+            <button class="button button-primary" data-action="pick-upload">
+              <span class="icon" data-icon="upload"></span>
+            上传错题
+            </button>
+          </div>
+        </div>
+
+        <div class="hero-stats" id="heroStats"></div>
+      </section>
+
+      <section class="nav-band">
+        <div class="view-tabs" role="tablist" aria-label="主导航">
+          <button class="tab is-active" data-tab="home">首页</button>
+          <button class="tab" data-tab="library">错题</button>
+          <button class="tab" data-tab="review">复习</button>
+          <button class="tab" data-tab="me">我的</button>
+        </div>
+      </section>
+
+      <section class="content-band">
+        <div id="appView"></div>
+      </section>
+    </main>
+  </div>
+
+  <input id="fileInput" type="file" accept="image/*" hidden />
+
+  <nav class="bottom-nav" aria-label="底部导航">
+    <button class="bottom-tab is-active" data-tab="home">首页</button>
+    <button class="bottom-tab" data-tab="library">错题</button>
+    <button class="bottom-tab" data-tab="review">复习</button>
+    <button class="bottom-tab" data-tab="me">我的</button>
+  </nav>
+
+  <script defer src="./app.js"></script>
+</body>
+</html>

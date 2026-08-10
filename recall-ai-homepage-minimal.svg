@@ -1,0 +1,161 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <defs>
+    <linearGradient id="pageBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f9f8"/>
+      <stop offset="0.55" stop-color="#f4f7fb"/>
+      <stop offset="1" stop-color="#fbf8f0"/>
+    </linearGradient>
+    <linearGradient id="primary" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f7c72"/>
+      <stop offset="1" stop-color="#2fa697"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-20%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="30" stdDeviation="28" flood-color="#101828" flood-opacity="0.18"/>
+    </filter>
+    <filter id="cardShadow" x="-20%" y="-20%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#25364a" flood-opacity="0.06"/>
+    </filter>
+    <style>
+      .font { font-family: Inter, "Segoe UI", Arial, sans-serif; }
+      .title { fill:#101828; font-size:44px; font-weight:800; letter-spacing:0; }
+      .sub { fill:#5f6b7a; font-size:18px; font-weight:500; }
+      .h1 { fill:#101828; font-size:28px; font-weight:800; letter-spacing:0; }
+      .h2 { fill:#101828; font-size:18px; font-weight:800; letter-spacing:0; }
+      .body { fill:#667085; font-size:13px; font-weight:600; }
+      .tiny { fill:#667085; font-size:11px; font-weight:700; }
+      .white { fill:#fff; }
+      .teal { fill:#1f7c72; }
+      .blue { fill:#2f6fed; }
+      .amber { fill:#b76b00; }
+      .stroke { stroke:#e6ebef; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="900" fill="url(#pageBg)"/>
+  <circle cx="116" cy="130" r="170" fill="#1f7c72" opacity="0.08"/>
+  <circle cx="1064" cy="770" r="210" fill="#f39c12" opacity="0.08"/>
+
+  <g class="font">
+    <text x="92" y="92" class="title">Recall AI 首页方向</text>
+    <text x="94" y="127" class="sub">Codex 式极简骨架 + 柔和学习色彩 + 轻不对称信息层级</text>
+
+    <g transform="translate(160 160)" filter="url(#shadow)">
+      <rect width="410" height="690" rx="42" fill="#141c27"/>
+      <rect x="14" y="14" width="382" height="662" rx="31" fill="#fcfdfd"/>
+
+      <g transform="translate(38 42)">
+        <text x="0" y="0" class="tiny" fill="#1d2939">9:41</text>
+        <text x="276" y="0" class="tiny" fill="#1d2939">Recall AI</text>
+      </g>
+
+      <g transform="translate(38 82)">
+        <text x="0" y="0" class="body">晚上好，林同学</text>
+        <text x="0" y="39" class="h1">今天要完成什么？</text>
+        <rect x="298" y="-18" width="46" height="46" rx="15" fill="#f2f6f7"/>
+        <circle cx="321" cy="5" r="10" fill="#1f7c72"/>
+      </g>
+
+      <!-- Asymmetric hero row -->
+      <g transform="translate(38 158)">
+        <rect width="224" height="154" rx="24" fill="url(#primary)" filter="url(#cardShadow)"/>
+        <text x="22" y="35" font-size="14" font-weight="700" fill="#e9fffb">今日待复习</text>
+        <text x="22" y="93" font-size="56" font-weight="850" fill="#ffffff">4</text>
+        <text x="83" y="91" font-size="15" font-weight="750" fill="#e9fffb">道</text>
+        <text x="22" y="122" font-size="13" font-weight="650" fill="#dff9f5">预计 12 分钟 · 2 个薄弱点</text>
+
+        <rect x="242" y="0" width="102" height="70" rx="20" fill="#ffffff" stroke="#e6ebef"/>
+        <rect x="264" y="17" width="26" height="26" rx="9" fill="#e7f5f2"/>
+        <path d="M277 23 v14 M270 30 h14" stroke="#1f7c72" stroke-width="2.5" stroke-linecap="round"/>
+        <text x="264" y="57" class="tiny" fill="#1f7c72">上传错题</text>
+
+        <rect x="242" y="84" width="102" height="70" rx="20" fill="#ffffff" stroke="#e6ebef"/>
+        <rect x="264" y="101" width="26" height="26" rx="9" fill="#eef4ff"/>
+        <circle cx="277" cy="114" r="7" fill="none" stroke="#2f6fed" stroke-width="2.3"/>
+        <path d="M283 120 l6 6" stroke="#2f6fed" stroke-width="2.3" stroke-linecap="round"/>
+        <text x="264" y="141" class="tiny" fill="#2f6fed">处理中 1</text>
+      </g>
+
+      <!-- Queue -->
+      <g transform="translate(38 348)">
+        <text x="0" y="0" class="h2">学习队列</text>
+        <text x="282" y="0" class="tiny">查看全部</text>
+
+        <g transform="translate(0 22)" filter="url(#cardShadow)">
+          <rect width="344" height="72" rx="20" fill="#ffffff" stroke="#e6ebef"/>
+          <rect x="14" y="14" width="44" height="44" rx="14" fill="#fff4df"/>
+          <text x="31" y="43" font-size="20" font-weight="850" fill="#b76b00">x</text>
+          <text x="72" y="29" font-size="15" font-weight="800" fill="#1d2939">一元一次方程</text>
+          <text x="72" y="50" class="tiny">移项错误 · 第二次复习</text>
+          <rect x="274" y="21" width="54" height="30" rx="15" fill="#e7f5f2"/>
+          <text x="288" y="40" class="tiny" fill="#1f7c72">开始</text>
+        </g>
+
+        <g transform="translate(18 106)" filter="url(#cardShadow)">
+          <rect width="326" height="72" rx="20" fill="#ffffff" stroke="#e6ebef"/>
+          <rect x="14" y="14" width="44" height="44" rx="14" fill="#eef4ff"/>
+          <text x="29" y="43" font-size="19" font-weight="850" fill="#2f6fed">ƒ</text>
+          <text x="72" y="29" font-size="15" font-weight="800" fill="#1d2939">一次函数图像</text>
+          <text x="72" y="50" class="tiny">符号判断 · 明天到期</text>
+          <rect x="253" y="21" width="56" height="30" rx="15" fill="#f2f4f7"/>
+          <text x="266" y="40" class="tiny" fill="#475467">稍后</text>
+        </g>
+      </g>
+
+      <!-- Insight cards -->
+      <g transform="translate(38 570)">
+        <rect width="196" height="76" rx="22" fill="#ffffff" stroke="#e6ebef"/>
+        <text x="18" y="29" class="body">本周完成率</text>
+        <text x="18" y="58" font-size="24" font-weight="850" fill="#101828">76%</text>
+        <rect x="104" y="48" width="70" height="6" rx="3" fill="#e8eef1"/>
+        <rect x="104" y="48" width="53" height="6" rx="3" fill="#1f7c72"/>
+
+        <rect x="214" y="-22" width="130" height="98" rx="22" fill="#101828"/>
+        <text x="232" y="13" font-size="13" font-weight="750" fill="#d0d5dd">薄弱点</text>
+        <text x="232" y="42" font-size="18" font-weight="820" fill="#ffffff">概率统计</text>
+        <text x="232" y="67" font-size="12" font-weight="650" fill="#b8c0cc">建议练 3 题</text>
+      </g>
+
+      <g transform="translate(36 638)">
+        <rect width="338" height="54" rx="20" fill="#101828"/>
+        <text x="38" y="34" font-size="12" font-weight="750" fill="#fff">首页</text>
+        <text x="116" y="34" font-size="12" font-weight="750" fill="#98a2b3">错题</text>
+        <text x="194" y="34" font-size="12" font-weight="750" fill="#98a2b3">复习</text>
+        <text x="272" y="34" font-size="12" font-weight="750" fill="#98a2b3">我的</text>
+      </g>
+    </g>
+
+    <g transform="translate(650 206)">
+      <text x="0" y="0" font-size="30" font-weight="820" fill="#101828">视觉策略</text>
+      <text x="0" y="40" class="sub">不是教育 App 的热闹感，而是学习工作台的安静感。</text>
+
+      <g transform="translate(0 92)">
+        <rect width="390" height="86" rx="24" fill="#ffffff" stroke="#e6ebef"/>
+        <circle cx="42" cy="43" r="15" fill="#1f7c72"/>
+        <text x="78" y="37" class="h2">黑白骨架负责秩序</text>
+        <text x="78" y="61" class="body">文字、边界、留白、列表像 Codex 一样克制。</text>
+      </g>
+
+      <g transform="translate(34 202)">
+        <rect width="390" height="86" rx="24" fill="#ffffff" stroke="#e6ebef"/>
+        <circle cx="42" cy="43" r="15" fill="#f39c12"/>
+        <text x="78" y="37" class="h2">颜色只表达状态</text>
+        <text x="78" y="61" class="body">青绿=行动/掌握，橙色=确认，蓝色=处理中。</text>
+      </g>
+
+      <g transform="translate(0 312)">
+        <rect width="390" height="86" rx="24" fill="#ffffff" stroke="#e6ebef"/>
+        <circle cx="42" cy="43" r="15" fill="#2f6fed"/>
+        <text x="78" y="37" class="h2">轻不对称制造记忆点</text>
+        <text x="78" y="61" class="body">大复习卡 + 小上传卡，不打乱阅读路径。</text>
+      </g>
+
+      <g transform="translate(34 444)">
+        <rect width="72" height="48" rx="14" fill="#1f7c72"/>
+        <rect x="86" width="72" height="48" rx="14" fill="#f39c12"/>
+        <rect x="172" width="72" height="48" rx="14" fill="#2f6fed"/>
+        <rect x="258" width="72" height="48" rx="14" fill="#101828"/>
+        <text x="0" y="82" class="body">推荐首页关键词：简约、可信、清爽、有一点聪明的偏移。</text>
+      </g>
+    </g>
+  </g>
+</svg>
