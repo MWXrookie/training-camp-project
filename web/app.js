@@ -6,11 +6,12 @@
   const STATE_KEY = "app-state";
   const TRIAL_ACCESS_CODE = "recall";
   const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
-  const DAILY_ANALYSIS_LIMIT = 8;
+  const DAILY_ANALYSIS_LIMIT = 50;
   const TRIAL_CONSENT_VERSION = "trial_notice_v0.1";
   const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
   const ALLOWED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
   const TAB_ORDER = ["home", "library", "review", "me"];
+  const INTERNAL_VIEWS = ["create", ...TAB_ORDER];
   const SUBJECTS = [
     "数学",
     "物理",
@@ -87,6 +88,8 @@
     reviewSubmittingId: null,
     reviewFeedbackLoadingId: null,
     reviewFeedbackError: null,
+    explanationLoadingId: null,
+    explanationError: null,
     search: "",
     statusFilter: "confirmed",
     reviewAnswer: "",
@@ -303,7 +306,7 @@
 
   function normalizeState(value) {
     return {
-      questions: Array.isArray(value?.questions) ? value.questions : [],
+      questions: Array.isArray(value?.questions) ? value.questions.map((question) => repairLatexArtifacts(question)) : [],
       profile: Object.assign(defaultProfile(), value?.profile || {}),
       access: Object.assign(defaultAccess(), value?.access || {}),
       trial: normalizeTrialControl(value?.trial),
@@ -326,7 +329,6 @@
   function normalizeTrialControl(value) {
     const defaultControl = defaultTrialControl();
     const savedDaily = value?.dailyAnalysis || {};
-    const savedLimit = Number(savedDaily.limit);
     const savedCount = Number(savedDaily.count);
     const date = savedDaily.date === todayKey() ? savedDaily.date : todayKey();
     return {
@@ -334,7 +336,7 @@
       dailyAnalysis: {
         date,
         count: date === savedDaily.date && Number.isFinite(savedCount) ? Math.max(0, savedCount) : 0,
-        limit: Number.isFinite(savedLimit) && savedLimit > 0 ? Math.max(1, Math.floor(savedLimit)) : defaultControl.dailyAnalysis.limit
+        limit: defaultControl.dailyAnalysis.limit
       }
     };
   }
@@ -475,34 +477,36 @@
   }
 
   function buildQuestion(payload) {
-    const id = payload.id || uid("q");
+    const repaired = repairLatexArtifacts(payload);
+    const id = repaired.id || uid("q");
     return Object.assign(
       {
         id,
-        title: payload.title || "未命名错题",
-        subject: normalizeSubject(payload.subject || "数学"),
-        knowledge: payload.knowledge || "未分类",
-        errorType: payload.errorType || "未记录",
-        stem: payload.stem || "",
-        studentAnswer: payload.studentAnswer || "",
-        correctAnswer: payload.correctAnswer || "",
-        hint: payload.hint || "",
-        steps: payload.steps || [],
-        solution: payload.solution || "",
-        note: payload.note || "",
-        status: payload.status || "draft",
-        dueAt: payload.dueAt || null,
-        reviewCount: payload.reviewCount || 0,
-        ease: payload.ease || 0.35,
-        lastReviewedAt: payload.lastReviewedAt || null,
-        createdAt: payload.createdAt || new Date().toISOString(),
-        updatedAt: payload.updatedAt || new Date().toISOString(),
-        history: payload.history || [],
-        reviewFeedback: payload.reviewFeedback || null,
-        imageData: payload.imageData || null,
-        sourceType: payload.sourceType || (payload.imageData ? "image" : "manual"),
-        archived: !!payload.archived,
-        riskFlags: Array.isArray(payload.riskFlags) ? payload.riskFlags : []
+        title: repaired.title || "未命名错题",
+        subject: normalizeSubject(repaired.subject || "数学"),
+        knowledge: repaired.knowledge || "未分类",
+        errorType: repaired.errorType || "未记录",
+        stem: repaired.stem || "",
+        studentAnswer: repaired.studentAnswer || "",
+        correctAnswer: repaired.correctAnswer || "",
+        hint: repaired.hint || "",
+        steps: repaired.steps || [],
+        solution: repaired.solution || "",
+        note: repaired.note || "",
+        status: repaired.status || "draft",
+        dueAt: repaired.dueAt || null,
+        reviewCount: repaired.reviewCount || 0,
+        ease: repaired.ease || 0.35,
+        lastReviewedAt: repaired.lastReviewedAt || null,
+        createdAt: repaired.createdAt || new Date().toISOString(),
+        updatedAt: repaired.updatedAt || new Date().toISOString(),
+        history: repaired.history || [],
+        reviewFeedback: repaired.reviewFeedback || null,
+        learningExplanation: repaired.learningExplanation || null,
+        imageData: repaired.imageData || null,
+        sourceType: repaired.sourceType || (repaired.imageData ? "image" : "manual"),
+        archived: !!repaired.archived,
+        riskFlags: Array.isArray(repaired.riskFlags) ? repaired.riskFlags : []
       },
       {}
     );
@@ -558,7 +562,7 @@
         return failureResult("schema_failed", "错误响应格式不合法。", ["error 不是对象"]);
       }
       const details = [];
-      if (!isString(error.code) || !["validation_failed", "consent_required", "rate_limited", "model_failed", "schema_failed", "not_question"].includes(error.code)) {
+      if (!isString(error.code) || !["validation_failed", "consent_required", "rate_limited", "model_failed", "schema_failed", "not_question", "multiple_questions"].includes(error.code)) {
         details.push("error.code 不在允许范围");
       }
       if (!isString(error.message) || !error.message.trim()) {
@@ -838,6 +842,22 @@
     return typeof value === "string" ? value.trim() : null;
   }
 
+  function repairLatexArtifacts(value) {
+    if (typeof value === "string") return repairLatexTextArtifacts(value);
+    if (Array.isArray(value)) return value.map((item) => repairLatexArtifacts(item));
+    if (!isPlainObject(value)) return value;
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, repairLatexArtifacts(item)]));
+  }
+
+  function repairLatexTextArtifacts(value) {
+    return String(value)
+      .replace(/\u000c(?=[A-Za-z{])/g, "\\f")
+      .replace(/\u0008(?=[A-Za-z{])/g, "\\b")
+      .replace(/\u0009(?=(?:ext|heta|imes|an\b|o\b|ag\b|op\b))/g, "\\t")
+      .replace(/\u000d(?=(?:ight|angle|ho|ef))/g, "\\r")
+      .replace(/\n(?=(?:eq|abla|otin|ot\b))/g, "\\n");
+  }
+
   function hasUnexpectedKeys(value, allowedKeys) {
     return Object.keys(value).some((key) => !allowedKeys.has(key));
   }
@@ -1065,20 +1085,32 @@
     const stats = computeStats();
     const contexts = {
       home: {
-        compact: false,
-        eyebrow: "先确认，再入库",
-        title: "今天要处理哪道错题？",
-        text: "这是一个可直接使用的本地 Web 端错题本。图片或文字会先生成待确认草稿，确认后才进入错题库和复习队列。",
+        compact: true,
+        eyebrow: "AI 错题复习",
+        title: "让 AI 帮你整理错题，也帮你复盘错误",
+        text: "上传或输入题目后，千问会生成待确认草稿；完成复习后，再根据你的作答生成 AI 复盘。",
         actions: `
-          <button class="button button-primary" data-action="pick-upload">
+          <button class="button button-primary" data-action="goto-create">
             <span class="icon" data-icon="upload"></span>
-            上传错题
+            录入错题
+          </button>
+        `
+      },
+      create: {
+        compact: true,
+        eyebrow: "AI 错题录入",
+        title: "先让 AI 整理，再由你确认",
+        text: "可以上传图片，也可以直接输入题干。千问会把图片整理成草稿，确认后才进入错题库。",
+        actions: `
+          <button class="button button-secondary" data-action="goto-home">
+            <span class="icon" data-icon="arrow-left"></span>
+            回首页
           </button>
         `
       },
       library: {
         compact: true,
-        eyebrow: "错题资产",
+        eyebrow: "AI 错题资产",
         title: "确认后的题目在这里管理",
         text: `当前有 ${stats.confirmedCount} 道正式错题，待确认草稿 ${stats.draftCount} 道。默认只看已确认内容。`,
         actions: `
@@ -1094,7 +1126,7 @@
       },
       review: {
         compact: true,
-        eyebrow: "今日复习",
+        eyebrow: "AI 复习反馈",
         title: stats.dueCount ? `先完成 ${stats.dueCount} 道到期题` : "今天没有到期题",
         text: "复习页按队列、题目、作答、提示、自评分区。先写答案，再按需要展开提示和解析。",
         actions: `
@@ -1123,6 +1155,7 @@
     };
     const context = contexts[ui.view] || contexts.home;
     heroBand.classList.toggle("is-compact", context.compact);
+    heroBand.classList.toggle("is-home-simple", ui.view === "home");
     heroCopy.innerHTML = `
       <p class="eyebrow">${escapeHtml(context.eyebrow)}</p>
       <h1>${escapeHtml(context.title)}</h1>
@@ -1237,13 +1270,35 @@
   }
 
   function renderTabs() {
+    const activeView = ui.view === "create" ? "home" : ui.view;
     tabButtons().forEach((button) => {
-      const active = button.dataset.tab === ui.view;
+      const active = button.dataset.tab === activeView;
       button.classList.toggle("is-active", active);
     });
   }
 
   function renderHeroStats() {
+    if (ui.view === "home") {
+      heroStats.innerHTML = "";
+      return;
+    }
+    if (ui.view === "create") {
+      heroStats.innerHTML = `
+        <div class="stat-card create-status-card">
+          <div class="stat-head">
+            <p class="stat-title">录入流程</p>
+            <span class="badge blue">当前页</span>
+          </div>
+          <div class="create-step-list">
+            <span class="is-current">1 选择图片或文字</span>
+            <span>2 裁剪并分析</span>
+            <span>3 核对后入库</span>
+          </div>
+          <p class="stat-desc">确认前不会写入正式错题库。</p>
+        </div>
+      `;
+      return;
+    }
     const stats = computeStats();
     heroStats.innerHTML = `
       <div class="stat-card">
@@ -1287,6 +1342,8 @@
 
   function renderView() {
     switch (ui.view) {
+      case "create":
+        return renderCreateView();
       case "library":
         return renderLibraryView();
       case "review":
@@ -1300,6 +1357,198 @@
   }
 
   function renderHomeView() {
+    const stats = computeStats();
+    const recent = recentQuestions(1);
+    const pending = questionsByStatus("draft");
+    const hasReviewPressure = stats.dueCount > 0;
+    const focusTitle = hasReviewPressure
+      ? `先完成 ${stats.dueCount} 道到期题`
+      : stats.confirmedCount
+        ? "今天可以继续学习"
+        : "准备开始整理错题";
+    const focusDesc = hasReviewPressure
+      ? "首页只提醒你先做什么。上传和确认流程已经放到单独的录入页里。"
+      : "上传入口在页面顶部；确认后的内容会进入错题库，并在这里留下学习记录。";
+    const focusActions = hasReviewPressure
+      ? `
+          <button class="button button-primary" data-action="goto-review">
+            <span class="icon" data-icon="review"></span>
+            开始复习
+          </button>
+          <button class="button button-secondary" data-action="goto-library">
+            <span class="icon" data-icon="book"></span>
+            查看错题库
+          </button>
+        `
+      : `
+          <button class="button button-secondary" data-action="goto-library">
+            <span class="icon" data-icon="book"></span>
+            查看错题库
+          </button>
+        `;
+    return `
+      <div class="home-simple-layout">
+        <section class="page-panel home-focus-panel">
+          <div>
+            <p class="eyebrow">今日重点</p>
+            <h2 class="section-title">${escapeHtml(focusTitle)}</h2>
+            <p class="section-desc">${escapeHtml(focusDesc)}</p>
+          </div>
+          <div class="home-focus-actions">
+            ${focusActions}
+          </div>
+        </section>
+
+        <section class="home-quick-grid" aria-label="首页入口">
+          ${homeEntryCard("今日复习", stats.dueCount ? `${stats.dueCount} 道待复习` : "暂无到期题", "goto-review", "review")}
+          ${homeEntryCard("错题库", `${stats.confirmedCount} 道已确认`, "goto-library", "book")}
+        </section>
+
+        <section class="ai-value-strip" aria-label="AI 价值">
+          <div class="ai-value-intro">
+            <span class="badge blue"><span class="icon" data-icon="spark"></span>AI 工作区</span>
+            <h2>AI 不只负责识别图片</h2>
+            <p>它会在录入和复习两个关键时刻帮你形成更有价值的错题记录。</p>
+          </div>
+          <div class="ai-value-points">
+            <div class="ai-value-point">
+              <span class="ai-value-label">录入时</span>
+              <strong>生成可核对的学习草稿</strong>
+              <p>整理题干、答案、提示和关键步骤，确认后才入库。</p>
+            </div>
+            <div class="ai-value-point">
+              <span class="ai-value-label">复习后</span>
+              <strong>生成 AI 复盘，定位这次卡点</strong>
+              <p>结合你的答案、感受和便签，提示可能卡点与下次检查项。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="page-panel home-simple-panel">
+          <div class="section-head compact">
+            <div>
+              <h2 class="section-title">当前状态</h2>
+              <p class="section-desc">只保留最需要判断下一步的数字。</p>
+            </div>
+          </div>
+          <div class="home-status-strip is-simple">
+            ${homeMetric("待确认", pending.length, "show-drafts", "查看草稿")}
+            ${homeMetric("待复习", stats.dueCount, "goto-review", "前往复习页")}
+            ${homeMetric("便签", stats.noteCount, "goto-library", "回看已记录内容")}
+          </div>
+        </section>
+
+        <section class="page-panel home-simple-panel">
+          <div class="section-head compact">
+            <div>
+              <h2 class="section-title">最近内容</h2>
+              <p class="section-desc">这里只放最近一条，完整列表在错题库。</p>
+            </div>
+            <button class="button button-ghost button-pill" data-action="goto-library">全部</button>
+          </div>
+          <div class="item-list">
+            ${
+              recent.length
+                ? recent.map((q) => renderQuestionCard(q, { compact: true })).join("")
+                : `<div class="home-calm-state">还没有正式错题。先去录入页处理第一道题。</div>`
+            }
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  function renderCreateView() {
+    const draft = ui.draft;
+    const processing = ui.processing;
+    const guard = analysisGuardStatus();
+    const usage = currentAnalysisUsage();
+    const analysisDisabledAttr = guard.ok ? "" : "disabled";
+    return `
+      <div class="page-grid">
+        <section class="upload-card create-flow-card">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">录入页</p>
+              <h2 class="section-title">${draft || ui.cropper || processing ? "完成当前草稿" : "选择一种录入方式"}</h2>
+              <p class="section-desc">这里只处理上传、文字录入、选区和确认。确认后再进入错题库。</p>
+            </div>
+            <span class="badge blue">图片或文字</span>
+          </div>
+
+          <div class="drop-zone home-drop-zone ${ui.dragOver ? "is-dragging" : ""}" data-dropzone>
+            <div class="drop-row">
+              <div>
+                <p class="drop-title">上传错题图片</p>
+                <p class="drop-desc">支持 JPG、PNG、WEBP。今日剩余 ${remainingAnalysisCount()}/${usage.limit} 次试用分析。</p>
+              </div>
+      <button class="button button-primary" data-action="pick-upload" ${analysisDisabledAttr}>
+                <span class="icon" data-icon="upload"></span>
+                上传错题图片
+              </button>
+            </div>
+            ${
+              draft || ui.cropper || processing
+                ? ""
+                : `<div class="text-upload-box">
+                    <div class="text-upload-head">
+                      <div>
+                        <p class="drop-title">文字录入错题</p>
+                        <p class="drop-desc">没有图片时，直接粘贴或输入题干，也会进入待确认草稿。</p>
+                      </div>
+                      <span class="badge teal">不消耗 AI 次数</span>
+                    </div>
+                    <textarea id="textUploadStem" class="text-upload-input" placeholder="把题干粘贴在这里，也可以补充学生答案或你的理解。"></textarea>
+                    <div class="form-actions text-upload-actions">
+                      <button class="button button-secondary" data-action="create-text-draft">
+                        <span class="icon" data-icon="note"></span>
+                        用文字创建错题
+                      </button>
+                    </div>
+                  </div>`
+            }
+            ${
+              draft || ui.cropper || processing || ui.analysisError || ui.uploadError
+                ? `<div class="form-actions">
+                    <button class="button button-ghost" data-action="clear-draft">
+                      <span class="icon" data-icon="x"></span>
+                      ${processing ? "停止处理" : ui.cropper ? "取消选区" : draft || ui.analysisError ? "移除草稿" : "清空提示"}
+                    </button>
+                  </div>`
+                : ""
+            }
+            ${guard.ok ? "" : `<p class="field-tip danger">${escapeHtml(guard.message)}</p>`}
+
+            ${ui.uploadError ? renderUploadError(ui.uploadError) : ""}
+            ${ui.analysisError ? renderAnalysisError(ui.analysisError) : ""}
+            ${
+              processing
+                ? renderProcessingState(processing)
+                : ui.cropper
+                ? renderImageCropper(ui.cropper)
+                : draft
+                ? renderDraftEditor(draft)
+                : ui.analysisError
+                ? ""
+                : `<div class="empty-state">录入页现在很干净。选择图片或粘贴题干后，这里才会出现下一步。</div>`
+            }
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  function homeEntryCard(title, desc, action, icon) {
+    return `
+      <button type="button" class="home-entry-card" data-action="${escapeAttr(action)}">
+        <span class="icon" data-icon="${escapeAttr(icon)}"></span>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(desc)}</span>
+      </button>
+    `;
+  }
+
+  function legacyRenderHomeView() {
     const draft = ui.draft;
     const processing = ui.processing;
     const stats = computeStats();
@@ -1333,10 +1582,10 @@
             </div>
 
             <div class="home-status-strip">
-              ${homeMetric("已确认", stats.confirmedCount)}
-              ${homeMetric("待复习", stats.dueCount)}
-              ${homeMetric("待确认", stats.draftCount)}
-              ${homeMetric("便签", stats.noteCount)}
+              ${homeMetric("已确认", stats.confirmedCount, "goto-library", "查看错题库")}
+              ${homeMetric("待复习", stats.dueCount, "goto-review", "前往复习页")}
+              ${homeMetric("待确认", stats.draftCount, "show-drafts", "查看草稿")}
+              ${homeMetric("便签", stats.noteCount, "goto-library", "回看已记录内容")}
             </div>
 
             <div class="drop-zone home-drop-zone ${ui.dragOver ? "is-dragging" : ""}" data-dropzone>
@@ -1408,10 +1657,10 @@
 
           <section class="page-panel home-side-panel">
             ${renderHomeReviewBlock(stats)}
-            ${renderHomeListBlock("最近错题", "确认后的题目会进入这里。", recent, { compact: true })}
+            ${renderHomeListBlock("最近错题", "确认后的题目会进入这里。", recent, { compact: true, action: "goto-library" })}
             ${
               pending.length
-                ? renderHomeListBlock("待确认草稿", "确认后才会进入正式错题库。", pending.slice(0, 3), { compact: true, draft: true })
+                ? renderHomeListBlock("待确认草稿", "确认后才会进入正式错题库。", pending.slice(0, 3), { compact: true, draft: true, action: "show-drafts" })
                 : ""
             }
           </section>
@@ -1420,19 +1669,20 @@
     `;
   }
 
-  function homeMetric(label, value) {
+  function homeMetric(label, value, action, hint) {
+    const actionAttr = action ? ` data-action="${action}"` : "";
     return `
-      <div class="home-metric">
+      <button type="button" class="home-metric"${actionAttr} title="${escapeAttr(hint || label)}">
         <span>${escapeHtml(label)}</span>
         <strong>${escapeHtml(String(value))}</strong>
-      </div>
+      </button>
     `;
   }
 
   function renderHomeReviewBlock(stats) {
     const hasDue = stats.dueCount > 0;
     return `
-      <div class="home-block ${hasDue ? "is-priority" : ""}">
+      <div class="home-block ${hasDue ? "is-priority" : ""}" data-action="goto-review" role="button" tabindex="0">
         <div class="section-head">
           <div>
             <h2 class="section-title">今日复习</h2>
@@ -1453,8 +1703,9 @@
   }
 
   function renderHomeListBlock(title, desc, items, options = {}) {
+    const actionAttr = options.action ? ` data-action="${options.action}" role="button" tabindex="0"` : "";
     return `
-      <div class="home-block">
+      <div class="home-block"${actionAttr}>
         <div class="section-head compact">
           <div>
             <h2 class="section-title">${escapeHtml(title)}</h2>
@@ -1630,6 +1881,7 @@
             <div class="form-row">
               <label>题干</label>
               <textarea name="stem" placeholder="把题目内容写在这里">${escapeHtml(draft.stem || "")}</textarea>
+              ${renderMathPreview("stem", draft.stem)}
             </div>
 
             <input type="hidden" name="knowledge" value="${escapeAttr(draft.knowledge || "")}" />
@@ -1650,10 +1902,12 @@
             <div class="form-row">
               <label>学生答案</label>
               <textarea name="studentAnswer" placeholder="学生写了什么">${escapeHtml(draft.studentAnswer || "")}</textarea>
+              ${renderMathPreview("studentAnswer", draft.studentAnswer)}
             </div>
             <div class="form-row">
               <label>正确答案</label>
               <textarea name="correctAnswer" placeholder="答案参考">${escapeHtml(draft.correctAnswer || "")}</textarea>
+              ${renderMathPreview("correctAnswer", draft.correctAnswer)}
             </div>
             </div>
           </section>
@@ -1666,6 +1920,7 @@
             <div class="form-row">
               <label>提示</label>
               <textarea name="hint" placeholder="先放一个不直接给答案的提示">${escapeHtml(draft.hint || "")}</textarea>
+              ${renderMathPreview("hint", draft.hint)}
             </div>
 
             <div class="form-row">
@@ -1690,6 +1945,18 @@
           </div>
         </form>
       </div>
+    `;
+  }
+
+  function renderMathPreview(field, value) {
+    const emptyClass = hasMathSyntax(value) ? "" : " is-empty";
+    return `<div class="math-preview${emptyClass}" data-math-preview="${escapeAttr(field)}">${renderMathPreviewContent(value)}</div>`;
+  }
+
+  function renderMathPreviewContent(value) {
+    return `
+      <span>公式预览</span>
+      <div>${renderMathText(value || "")}</div>
     `;
   }
 
@@ -1733,6 +2000,7 @@
   function renderAnalysisError(error) {
     const details = Array.isArray(error.details) ? error.details : [];
     const isNotQuestion = error.code === "not_question";
+    const isRecropRequired = ["not_question", "multiple_questions"].includes(error.code);
     const canSaveTraditional = Boolean(error.imageData);
     const recoveryText = analysisRecoveryText(error);
     return `
@@ -1752,10 +2020,10 @@
         }
         <div class="form-actions">
           ${
-            isNotQuestion
+            isRecropRequired
               ? `<button class="button button-primary" data-action="pick-upload">
                   <span class="icon" data-icon="upload"></span>
-                  重新上传题目
+                  重新选择并裁剪
                 </button>`
               : `<button class="button button-primary" data-action="retry-analysis">
                   <span class="icon" data-icon="spark"></span>
@@ -1788,6 +2056,7 @@
     if (code === "rate_limited") return "今日分析次数已用完";
     if (code === "service_disabled") return "试用分析已停用";
     if (code === "not_question") return "这张图片不是可分析的错题";
+    if (code === "multiple_questions") return "图片里有多道题";
     if (code === "model_failed") return "模型分析失败";
     return "结构化结果校验失败";
   }
@@ -1797,6 +2066,9 @@
     if (stage === "qwen_timeout") {
       return "这通常是模型响应太慢，不代表图片一定不能识别。可以先点重试；如果还慢，就缩小选区或保存为传统错题。";
     }
+    if (stage === "non_json_response") {
+      return "这通常不是题图内容问题，而是测试链接、Cloudflare 隧道或本地服务返回了网页错误。请先刷新页面；如果还失败，让发起测试的人检查本地 4174 服务和 Cloudflare 终端。";
+    }
     if (error?.code === "schema_failed") {
       return "模型返回了不稳定结构。建议先重试一次；如果仍失败，可以保存为传统错题，之后重新裁剪再分析。";
     }
@@ -1805,6 +2077,9 @@
     }
     if (error?.code === "not_question") {
       return "请重新框选题目区域，尽量只包含一道题的题干和必要解答过程。";
+    }
+    if (error?.code === "multiple_questions") {
+      return "当前图片里检测到多道题。请把选区缩小到一道题，连同必要的选项或解答过程一起框入后再分析。";
     }
     return "";
   }
@@ -1992,7 +2267,7 @@
       <div class="detail-stack">
         <div class="stack-card">
           <h4>原题</h4>
-          <p>${escapeHtml(q.stem || (traditional ? "请以图片和便签为准。" : "暂无题干"))}</p>
+          <p>${renderMathText(q.stem || (traditional ? "请以图片和便签为准。" : "暂无题干"))}</p>
         </div>
 
         <div class="stack-card">
@@ -2011,11 +2286,13 @@
           </div>
         </div>
 
-        ${traditional ? renderTraditionalNotice() : renderReviewFeedback(q)}
+        ${traditional ? renderTraditionalNotice() : renderLearningExplanation(q)}
+
+        ${traditional ? "" : renderReviewFeedback(q)}
 
         ${traditional ? "" : `<div class="stack-card ai-reference-card">
           <h4>AI 参考</h4>
-          <p>${escapeHtml(aiReferenceText(q))}</p>
+          <p>${renderMathText(aiReferenceText(q))}</p>
           <p class="field-tip">这里来自录入时的 AI 初步分析，不作为正式分类。复习后的 AI 复盘会单独记录在上方。</p>
         </div>`}
 
@@ -2023,17 +2300,17 @@
           <h4>分层解析</h4>
           <div class="hint-strip">
             <span>提示</span>
-            <p>${escapeHtml(q.hint || "暂无提示")}</p>
+            <p>${renderMathText(q.learningExplanation?.reference?.hint || q.hint || "暂无提示")}</p>
           </div>
           <details class="explain-layer">
             <summary>查看关键步骤</summary>
             <ul>
-              ${(q.steps || []).map((step) => `<li>${escapeHtml(step)}</li>`).join("") || "<li>暂无步骤</li>"}
+              ${(q.learningExplanation?.reference?.keySteps || q.steps || []).map((step) => `<li>${renderMathText(step)}</li>`).join("") || "<li>确认入库后由 DeepSeek 补齐标准步骤</li>"}
             </ul>
           </details>
           <details class="explain-layer">
             <summary>查看完整解析</summary>
-            <p>${escapeHtml(q.solution || "暂无完整解析")}</p>
+            <p>${renderMathText(q.learningExplanation?.reference?.fullSolution || q.solution || "确认入库后由 DeepSeek 补齐标准解析")}</p>
           </details>
         </div>`}
 
@@ -2044,7 +2321,7 @@
               <div class="timeline-item">
                 <div class="timeline-time">${formatShort(item.reviewedAt)}</div>
                 <div class="timeline-main">
-                  ${ratingLabel(item.rating)} · ${escapeHtml(item.note || "未填写自评")}
+                  ${ratingLabel(item.rating)} · ${renderMathText(item.note || "未填写自评")}
                 </div>
               </div>
             `).join("") || `<div class="muted">还没有复习记录。</div>`}
@@ -2096,7 +2373,7 @@
             </div>
             <span class="field-tip">不影响复习记录保存</span>
           </div>
-          <p>千问正在结合你刚才写下的答案、复习感受和这道题的原始信息，整理下一次可以检查的地方。</p>
+          <p>DeepSeek 正在结合你刚才写下的答案、复习感受和这道题的原始信息，整理下一次可以检查的地方。</p>
         </div>
       `;
     }
@@ -2126,22 +2403,90 @@
         <div class="ai-feedback-grid">
           <div>
             <span class="ai-feedback-label">本次观察</span>
-            <p>${escapeHtml(feedback.summary)}</p>
+            <p>${renderMathText(feedback.summary)}</p>
           </div>
           <div>
             <span class="ai-feedback-label">可能卡点</span>
-            <p>${escapeHtml(feedback.likelyGap)}</p>
+            <p>${renderMathText(feedback.likelyGap)}</p>
           </div>
           <div>
             <span class="ai-feedback-label">下次先检查</span>
-            <p>${escapeHtml(feedback.nextCheck)}</p>
+            <p>${renderMathText(feedback.nextCheck)}</p>
           </div>
           <div>
             <span class="ai-feedback-label">便签建议</span>
-            <p>${escapeHtml(feedback.noteSuggestion)}</p>
+            <p>${renderMathText(feedback.noteSuggestion)}</p>
           </div>
         </div>
         <p class="field-tip">这是基于本次作答的辅助判断，不替代你的理解。确认有用后，再把它改写进自己的便签。</p>
+      </div>
+    `;
+  }
+
+  function renderLearningExplanation(q) {
+    const isLoading = ui.explanationLoadingId === q.id;
+    const error = ui.explanationError && ui.explanationError.id === q.id ? ui.explanationError : null;
+    const explanation = q.learningExplanation;
+    if (isLoading) {
+      return `
+        <div class="stack-card ai-learning-card is-loading">
+          <div class="ai-feedback-head">
+            <div>
+              <span class="badge blue">DeepSeek AI 学习解析</span>
+              <h4>正在结合这道题和你的理解生成解析</h4>
+            </div>
+            <span class="field-tip">确认后的学习数据</span>
+          </div>
+          <p>DeepSeek 正在分析题目、学生答案和个人便签。它生成的是针对你的学习建议，不是普通搜题答案。</p>
+        </div>
+      `;
+    }
+    if (error) {
+      return `
+        <div class="stack-card ai-learning-card is-error">
+          <div class="ai-feedback-head">
+            <div>
+              <span class="badge amber">DeepSeek AI 学习解析</span>
+              <h4>错题已保存，解析稍后重试</h4>
+            </div>
+            <button class="button button-secondary button-pill" data-action="retry-explanation" data-id="${q.id}">重新生成</button>
+          </div>
+          <p>${escapeHtml(error.message)}</p>
+          <p class="field-tip">本次只发送确认后的题干、答案和便签，不发送原图。</p>
+        </div>
+      `;
+    }
+    if (!explanation) {
+      return `
+        <div class="stack-card ai-learning-card is-empty">
+          <div class="ai-feedback-head">
+            <div>
+              <span class="badge blue">DeepSeek AI 学习解析</span>
+              <h4>这道题的个性化解析还没有生成</h4>
+            </div>
+            <button class="button button-secondary button-pill" data-action="retry-explanation" data-id="${q.id}">生成解析</button>
+          </div>
+          <p>确认后的题目会发送给 DeepSeek，生成考查目标、你的可能差距、下次检查项和便签建议。</p>
+        </div>
+      `;
+    }
+    return `
+      <div class="stack-card ai-learning-card">
+        <div class="ai-feedback-head">
+          <div>
+            <span class="badge blue">DeepSeek AI 学习解析</span>
+            <h4>这不是标准答案，而是针对你的学习解析</h4>
+          </div>
+          <button class="button button-ghost button-pill" data-action="retry-explanation" data-id="${q.id}">重新生成</button>
+        </div>
+        <div class="ai-feedback-grid">
+          <div><span class="ai-feedback-label">考查目标</span><p>${renderMathText(explanation.whatItTests)}</p></div>
+          <div><span class="ai-feedback-label">你的答案与可能差距</span><p>${renderMathText(explanation.yourGap)}</p></div>
+          <div><span class="ai-feedback-label">关键理解</span><p>${renderMathText(explanation.workedExample)}</p></div>
+          <div><span class="ai-feedback-label">下次先检查</span><p>${renderMathText(explanation.nextCheck)}</p></div>
+          <div><span class="ai-feedback-label">便签建议</span><p>${renderMathText(explanation.noteSuggestion)}</p></div>
+        </div>
+        <p class="field-tip">生成时间：${escapeHtml(formatShort(explanation.generatedAt))}。请把有用的内容改写成你自己的理解。</p>
       </div>
     `;
   }
@@ -2234,7 +2579,7 @@
       <button class="review-queue-item ${selected ? "is-active" : ""}" data-action="open-review-question" data-id="${escapeAttr(q.id)}">
         <span class="queue-index">${options.index || 1}</span>
         <span class="queue-copy">
-          <strong>${escapeHtml(q.title)}</strong>
+          <strong>${renderMathText(q.title, { compact: true })}</strong>
           <span>${escapeHtml(normalizeSubject(q.subject))} · ${escapeHtml(formatDue(q.dueAt))}</span>
         </span>
       </button>
@@ -2250,9 +2595,11 @@
 
   function renderReviewForm(q) {
     const submitting = ui.reviewSubmittingId === q.id;
-    const steps = Array.isArray(q.steps) && q.steps.length
-      ? q.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")
-      : "<li>暂无关键步骤</li>";
+    const reference = q.learningExplanation?.reference || null;
+    const reviewSteps = reference?.keySteps || q.steps;
+    const steps = Array.isArray(reviewSteps) && reviewSteps.length
+      ? reviewSteps.map((step) => `<li>${renderMathText(step)}</li>`).join("")
+      : "<li>提交后由 DeepSeek 补齐标准步骤</li>";
     return `
       <div class="review-workbench-head">
         <div class="review-title-block">
@@ -2270,7 +2617,7 @@
         ${q.imageData ? `<img class="review-thumb" src="${q.imageData}" alt="${escapeAttr(q.title)}" />` : ""}
         <div>
           <div class="review-step-label"><span>1</span> 先看题目</div>
-          <p class="review-question-text">${escapeHtml(q.stem || "暂无题干")}</p>
+          <p class="review-question-text">${renderMathText(q.stem || "暂无题干")}</p>
         </div>
       </div>
 
@@ -2285,7 +2632,7 @@
           <div class="review-help-card">
             <div class="hint-strip">
               <span>提示</span>
-              <p>${escapeHtml(q.hint || "暂无提示")}</p>
+              <p>${renderMathText(reference?.hint || q.hint || "暂无提示")}</p>
             </div>
             <details class="explain-layer">
               <summary>查看关键步骤</summary>
@@ -2293,11 +2640,11 @@
             </details>
             <details class="explain-layer">
               <summary>查看正确答案</summary>
-              <p>${escapeHtml(q.correctAnswer || "暂无答案")}</p>
+              <p>${renderMathText(q.correctAnswer || "暂无答案")}</p>
             </details>
             <details class="explain-layer">
               <summary>查看完整解析</summary>
-              <p>${escapeHtml(q.solution || "暂无完整解析")}</p>
+              <p>${renderMathText(reference?.fullSolution || q.solution || "提交后由 DeepSeek 补齐标准解析")}</p>
             </details>
           </div>
         </div>
@@ -2329,7 +2676,7 @@
         </div>
         <div class="ai-review-teaser">
           <span class="badge blue">AI 复盘</span>
-          <p>提交这次作答后，千问会根据你的答案和复习感受生成复盘，随后显示在这道题的详情页。</p>
+          <p>提交这次作答后，DeepSeek 会根据你的答案和复习感受生成复盘，随后显示在这道题的详情页。</p>
         </div>
       </form>
     `;
@@ -2452,7 +2799,7 @@
             <h4>本地限制</h4>
             <ul>
               <li>图片只保存在当前浏览器</li>
-              <li>没有真实 AI 服务端</li>
+              <li>图片识别使用千问，学习解析和复习复盘使用 DeepSeek</li>
               <li>退出浏览器或清空数据会丢失本机内容</li>
             </ul>
           </div>
@@ -2480,6 +2827,8 @@
     const dueText = traditional ? "传统错题" : q.dueAt ? formatDue(q.dueAt) : options.draft ? "待确认" : "未排期";
     const selectedClass = options.selected ? " is-selected" : "";
     const traditionalClass = traditional ? " is-traditional" : "";
+    const action = options.reviewMode ? "open-review-question" : options.draft ? "confirm-question" : "open-question";
+    const actionLabel = options.reviewMode ? "去复习" : options.draft ? "确认草稿" : "查看详情";
     const thumb = q.imageData
       ? `<img class="question-thumb" src="${q.imageData}" alt="${escapeAttr(q.title)}" />`
       : `<div class="question-thumb preview-image placeholder">无图</div>`;
@@ -2492,16 +2841,16 @@
       ? `<button class="button button-ghost button-pill" data-action="start-review" data-id="${q.id}">复习</button>`
       : "";
     return `
-      <article class="question-card${selectedClass}${traditionalClass}">
+      <article class="question-card${selectedClass}${traditionalClass}" data-action="${action}" data-id="${q.id}" role="button" tabindex="0" aria-label="${escapeAttr(`${actionLabel}：${q.title}`)}">
         ${thumb}
         <div class="question-body">
-          <h3 class="question-title">${escapeHtml(q.title)}</h3>
+          <h3 class="question-title">${renderMathText(q.title, { compact: true })}</h3>
           <div class="question-meta">
             <span class="badge ${meta.badge}">${meta.label}</span>
             <span class="badge gray">${escapeHtml(normalizeSubject(q.subject))}</span>
             <span class="badge ${traditional ? "gray" : q.status === "draft" ? "amber" : q.dueAt && isDue(q.dueAt) ? "red" : "teal"}">${escapeHtml(dueText)}</span>
           </div>
-          <div class="question-summary">${escapeHtml(q.stem || "暂无题干")}</div>
+          <div class="question-summary">${renderMathText(q.stem || "暂无题干", { compact: true })}</div>
         </div>
         <div class="question-actions">
           ${mainAction}
@@ -2545,6 +2894,21 @@
     const form = document.getElementById("draftForm");
     if (!form) return;
     form.addEventListener("submit", (event) => event.preventDefault(), { once: true });
+    const fields = ["stem", "studentAnswer", "correctAnswer", "hint"];
+    const updatePreview = (field) => {
+      const input = form.elements[field];
+      const preview = form.querySelector(`[data-math-preview="${field}"]`);
+      if (!input || !preview) return;
+      const value = input.value || "";
+      preview.classList.toggle("is-empty", !hasMathSyntax(value));
+      preview.innerHTML = renderMathPreviewContent(value);
+    };
+    fields.forEach(updatePreview);
+    form.addEventListener("input", (event) => {
+      if (fields.includes(event.target?.name)) {
+        updatePreview(event.target.name);
+      }
+    });
   }
 
   function syncReviewState() {
@@ -2688,6 +3052,12 @@
       confirmQuestion(id);
       return;
     }
+    if (action === "retry-explanation") {
+      event.preventDefault();
+      const question = questionById(id);
+      if (question && !isTraditionalQuestion(question)) void requestLearningExplanation(question);
+      return;
+    }
     if (action === "delete-question") {
       event.preventDefault();
       deleteQuestion(id);
@@ -2734,6 +3104,11 @@
     if (action === "goto-home") {
       event.preventDefault();
       setView("home");
+      return;
+    }
+    if (action === "goto-create") {
+      event.preventDefault();
+      setView("create");
       return;
     }
     if (action === "save-note") {
@@ -2834,28 +3209,28 @@
 
   function handleDragOver(event) {
     if (!hasAccess()) return;
-    if (ui.view !== "home") return;
+    if (ui.view !== "create") return;
     event.preventDefault();
     ui.dragOver = true;
-    renderHomeOnly();
+    renderActiveViewOnly();
   }
 
   function handleDragLeave() {
     if (!ui.dragOver) return;
     ui.dragOver = false;
-    renderHomeOnly();
+    renderActiveViewOnly();
   }
 
   function handleDrop(event) {
     if (!hasAccess()) return;
-    if (ui.view !== "home") return;
+    if (ui.view !== "create") return;
     event.preventDefault();
     ui.dragOver = false;
     const file = event.dataTransfer.files && event.dataTransfer.files[0];
     if (file) {
       acceptFile(file);
     } else {
-      renderHomeOnly();
+      renderActiveViewOnly();
     }
   }
 
@@ -2929,6 +3304,13 @@
 
   function handleShortcut(event) {
     if (!hasAccess()) return;
+    const actionTarget = event.target?.closest?.("[data-action]");
+    const typingTarget = event.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(event.target.tagName);
+    if (!typingTarget && actionTarget && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      actionTarget.click();
+      return;
+    }
     if (event.key === "1") setView("home");
     if (event.key === "2") setView("library");
     if (event.key === "3") setView("review");
@@ -2965,7 +3347,7 @@
     }
     const validation = validateUploadFile(file);
     if (!validation.ok) {
-      ui.view = "home";
+      ui.view = "create";
       ui.draft = null;
       ui.processing = null;
       ui.analysisError = null;
@@ -2984,7 +3366,7 @@
         forceInvalid: isLikelyInvalidTrialFile(file.name)
       });
     } catch (error) {
-      ui.view = "home";
+      ui.view = "create";
       ui.draft = null;
       ui.cropper = null;
       ui.processing = null;
@@ -3000,7 +3382,7 @@
 
   async function prepareCropper(fileName, imageData, options = {}) {
     const image = await loadImage(imageData);
-    ui.view = "home";
+    ui.view = "create";
     ui.draft = null;
     ui.processing = null;
     ui.analysisError = null;
@@ -3010,7 +3392,7 @@
       imageData,
       naturalWidth: image.width,
       naturalHeight: image.height,
-      selection: defaultCropSelection(),
+      selection: defaultCropSelection(image.width, image.height),
       forceInvalid: Boolean(options.forceInvalid),
       adapter: options.adapter || "qwen"
     };
@@ -3020,12 +3402,13 @@
     }, 0);
   }
 
-  function defaultCropSelection() {
+  function defaultCropSelection(imageWidth = 1, imageHeight = 1) {
+    const isLongPage = Number(imageHeight) / Math.max(1, Number(imageWidth)) > 1.15;
     return {
-      x: 6,
+      x: isLongPage ? 8 : 6,
       y: 6,
-      width: 88,
-      height: 70
+      width: isLongPage ? 84 : 88,
+      height: isLongPage ? 22 : 70
     };
   }
 
@@ -3036,7 +3419,7 @@
       [field]: Number(value)
     };
     ui.cropper.selection = normalizeCropSelection(next);
-    renderHomeOnly();
+    renderActiveViewOnly();
   }
 
   function selectionFromDrag(startSelection, mode, deltaX, deltaY) {
@@ -3163,7 +3546,7 @@
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image, sx, sy, sw, sh, 0, 0, sw, sh);
-    return canvas.toDataURL("image/jpeg", 0.84);
+    return canvas.toDataURL("image/jpeg", 0.9);
   }
 
   function croppedFileName(fileName) {
@@ -3198,7 +3581,7 @@
   function startTrialAnalysis(fileName, imageData, options = {}) {
     const guard = analysisGuardStatus();
     if (!guard.ok) {
-      ui.view = "home";
+      ui.view = "create";
       ui.draft = null;
       ui.cropper = null;
       ui.processing = null;
@@ -3218,7 +3601,7 @@
     if ((options.adapter || "mock") === "mock") {
       registerAnalysisAttempt();
     }
-    ui.view = "home";
+    ui.view = "create";
     ui.draft = null;
     ui.cropper = null;
     ui.analysisError = null;
@@ -3308,16 +3691,31 @@
       method: "POST",
       body: form
     });
-    const payload = await response.json().catch(() => null);
+    const contentType = response.headers.get("content-type") || "";
+    const responseText = await response.text().catch(() => "");
+    const payload = responseText ? safeParseJson(responseText) : null;
     if (payload) return payload;
     return {
       error: {
-        code: response.ok ? "schema_failed" : "model_failed",
-        message: "分析服务返回格式不正确，请重试或手动填写。",
-        details: {}
+        code: "model_failed",
+        message: "外网转发或分析服务返回了异常页面，请刷新后重试。",
+        details: {
+          stage: "non_json_response",
+          status: response.status,
+          content_type: contentType || "unknown",
+          empty_response: !responseText
+        }
       },
       request_id: uid("trial_req")
     };
+  }
+
+  function safeParseJson(text) {
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      return null;
+    }
   }
 
   async function dataUrlToBlob(dataUrl) {
@@ -3369,23 +3767,24 @@
   }
 
   function buildTrialDraftFromAnalysis(data, fileName = "新题图片", imageData = null) {
-    const knowledge = data.knowledge_tags[0] || "AI 暂无参考";
-    const title = draftTitleFromStem(data.stem) || "新错题草稿";
+    const repaired = repairLatexArtifacts(data);
+    const knowledge = repaired.knowledge_tags[0] || "AI 暂无参考";
+    const title = draftTitleFromStem(repaired.stem) || "新错题草稿";
     return buildQuestion({
       title,
       subject: subjectFromKnowledge(knowledge) || "数学",
       knowledge,
-      errorType: TRIAL_ERROR_TYPE_LABELS[data.error_type] || "信息不足",
-      stem: data.stem,
-      studentAnswer: data.student_answer ?? "",
-      correctAnswer: data.correct_answer ?? "",
-      hint: data.explanation.hint,
-      steps: data.explanation.key_steps,
-      solution: data.explanation.full_solution,
+      errorType: TRIAL_ERROR_TYPE_LABELS[repaired.error_type] || "信息不足",
+      stem: repaired.stem,
+      studentAnswer: repaired.student_answer ?? "",
+      correctAnswer: repaired.correct_answer ?? "",
+      hint: repaired.explanation.hint,
+      steps: repaired.explanation.key_steps,
+      solution: repaired.explanation.full_solution,
       note: "",
       status: "draft",
       dueAt: null,
-      riskFlags: data.risk_flags,
+      riskFlags: repaired.risk_flags,
       imageData: imageData || seedImage(title, "#1f7c72", "#e6f3f1")
     });
   }
@@ -3466,7 +3865,7 @@
     const dataUrl = await readFileAsDataUrl(file);
     if (!dataUrl) return null;
     const image = await loadImage(dataUrl);
-    const maxWidth = 1200;
+    const maxWidth = 1800;
     const scale = image.width > maxWidth ? maxWidth / image.width : 1;
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.width * scale));
@@ -3475,7 +3874,7 @@
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.82);
+    return canvas.toDataURL("image/jpeg", 0.88);
   }
 
   function readFileAsDataUrl(file) {
@@ -3529,12 +3928,13 @@
     } else {
       ui.createResult = null;
     }
-    ui.view = confirmAfterSave ? "library" : "home";
+    ui.view = confirmAfterSave ? "library" : "create";
     void persist();
     render();
     if (confirmAfterSave) {
       ui.selectedId = question.id;
       setView("library");
+      void requestLearningExplanation(question);
     }
   }
 
@@ -3596,6 +3996,9 @@
     ui.selectedId = question.id;
     void persist();
     render();
+    if (!isTraditionalQuestion(question)) {
+      void requestLearningExplanation(question);
+    }
   }
 
   function archiveQuestion(id) {
@@ -3753,6 +4156,62 @@
     }
   }
 
+  async function requestLearningExplanation(question) {
+    if (!question || isTraditionalQuestion(question) || ui.explanationLoadingId === question.id) return;
+    ui.explanationLoadingId = question.id;
+    ui.explanationError = null;
+    render();
+    try {
+      const response = await fetch("/api/trial/explanation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          consent_version: TRIAL_CONSENT_VERSION,
+          question: {
+            stem: question.stem || "",
+            student_answer: question.studentAnswer || null,
+            correct_answer: question.correctAnswer || null,
+            hint: question.hint || "",
+            key_steps: Array.isArray(question.steps) ? question.steps : [],
+            prior_note: question.note || ""
+          }
+        })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.data) {
+        throw new Error(payload?.error?.message || "DeepSeek 学习解析暂时不可用，错题已经保存。 ");
+      }
+      const data = payload.data;
+      question.learningExplanation = {
+        reference: data.reference
+          ? {
+              hint: String(data.reference.hint || "").trim(),
+              keySteps: Array.isArray(data.reference.key_steps) ? data.reference.key_steps.map((item) => String(item || "").trim()).filter(Boolean) : [],
+              fullSolution: String(data.reference.full_solution || "").trim()
+            }
+          : null,
+        whatItTests: String(data.what_it_tests || "").trim(),
+        yourGap: String(data.your_gap || "").trim(),
+        workedExample: String(data.worked_example || "").trim(),
+        nextCheck: String(data.next_check || "").trim(),
+        noteSuggestion: String(data.note_suggestion || "").trim(),
+        generatedAt: new Date().toISOString(),
+        requestId: payload.request_id || null
+      };
+      await persist();
+      ui.explanationLoadingId = null;
+      ui.explanationError = null;
+      render();
+    } catch (error) {
+      ui.explanationLoadingId = null;
+      ui.explanationError = {
+        id: question.id,
+        message: error?.message || "DeepSeek 学习解析暂时不可用，错题已经保存。"
+      };
+      render();
+    }
+  }
+
   function saveProfile() {
     const name = sanitize(document.getElementById("profileName")?.value) || defaultProfile().name;
     const classText = sanitize(document.getElementById("profileClassText")?.value) || defaultProfile().classText;
@@ -3810,7 +4269,7 @@
   }
 
   function setView(view) {
-    ui.view = TAB_ORDER.includes(view) ? view : "home";
+    ui.view = INTERNAL_VIEWS.includes(view) ? view : "home";
     render();
   }
 
@@ -3935,11 +4394,13 @@
     return `${due} 道待复习`;
   }
 
-  function renderHomeOnly() {
+  function renderActiveViewOnly() {
+    renderHeroContext();
     renderHeroStats();
-    appView.innerHTML = renderHomeView();
+    appView.innerHTML = renderGlobalNotice() + renderView();
     hydrateIcons(appView);
     syncDraftPreview();
+    syncReviewState();
   }
 
   function questionStatusMeta(q) {
@@ -4040,6 +4501,281 @@
     const number = Number(value);
     if (!Number.isFinite(number)) return min;
     return Math.min(max, Math.max(min, number));
+  }
+
+  function renderMathText(value, options = {}) {
+    const text = String(value ?? "");
+    if (!text) return "";
+    return splitMathSegments(text)
+      .map((segment) => {
+        if (segment.math) {
+          return `<span class="${segment.display ? "math-display" : "math-inline"} ${options.compact ? "is-compact" : ""}">${renderLatexEscaped(escapeHtml(segment.text))}</span>`;
+        }
+        return renderTextSegmentWithMath(segment.text, options);
+      })
+      .join("");
+  }
+
+  function splitMathSegments(text) {
+    const segments = [];
+    let index = 0;
+    while (index < text.length) {
+      const next = findNextMathDelimiter(text, index);
+      if (!next) {
+        segments.push({ text: text.slice(index), math: false });
+        break;
+      }
+      if (next.start > index) {
+        segments.push({ text: text.slice(index, next.start), math: false });
+      }
+      segments.push({
+        text: text.slice(next.contentStart, next.end),
+        math: true,
+        display: next.display
+      });
+      index = next.end + next.close.length;
+    }
+    return segments;
+  }
+
+  function findNextMathDelimiter(text, fromIndex) {
+    const delimiters = [
+      { open: "\\[", close: "\\]", display: true },
+      { open: "\\(", close: "\\)", display: false },
+      { open: "$$", close: "$$", display: true },
+      { open: "$", close: "$", display: false }
+    ];
+    let match = null;
+    for (const delimiter of delimiters) {
+      const start = text.indexOf(delimiter.open, fromIndex);
+      if (start < 0) continue;
+      const contentStart = start + delimiter.open.length;
+      const end = text.indexOf(delimiter.close, contentStart);
+      if (end < 0) continue;
+      if (!match || start < match.start) {
+        match = { ...delimiter, start, contentStart, end };
+      }
+    }
+    return match;
+  }
+
+  function renderTextSegmentWithMath(text, options = {}) {
+    return renderLatexEscaped(escapeHtml(text))
+      .replace(/\r?\n/g, "<br />")
+      .replace(/\s{2,}/g, (spaces) => "&nbsp;".repeat(spaces.length));
+  }
+
+  function hasMathSyntax(value) {
+    return /\\(?:d?frac|sqrt|left|right|times|cdot|cdotp|div|pm|leq|geq|neq|ne|le|ge|approx|pi|theta|alpha|beta|gamma|Delta|sum|infty|text|mathrm|mathbf|operatorname|begin|end)|\\\(|\\\[|\$[^$]+\$|[A-Za-z0-9)\]}]\^\{?[-+A-Za-z0-9]+|[A-Za-z]\_\{?[-+A-Za-z0-9]+/.test(String(value || ""));
+  }
+
+  function renderLatexEscaped(input, depth = 0) {
+    if (depth > 4) return input;
+    let html = input;
+    html = html
+      .replace(/\\left\s*/g, "")
+      .replace(/\\right\s*/g, "")
+      .replace(/\\,/g, " ")
+      .replace(/\\;/g, " ")
+      .replace(/\\!/g, "")
+      .replace(/\\quad/g, " ")
+      .replace(/\\qquad/g, " ");
+
+    html = replaceLatexGroups(html, "dfrac", (groups) => {
+      const top = renderLatexEscaped(groups[0], depth + 1);
+      const bottom = renderLatexEscaped(groups[1], depth + 1);
+      return `<span class="math-frac math-frac-large"><span class="math-frac-top">${top}</span><span class="math-frac-bottom">${bottom}</span></span>`;
+    });
+    html = replaceLatexGroups(html, "frac", (groups) => {
+      const top = renderLatexEscaped(groups[0], depth + 1);
+      const bottom = renderLatexEscaped(groups[1], depth + 1);
+      return `<span class="math-frac"><span class="math-frac-top">${top}</span><span class="math-frac-bottom">${bottom}</span></span>`;
+    });
+    html = replaceLatexGroups(html, "sqrt", (groups) => {
+      return `<span class="math-sqrt"><span class="math-radical">√</span><span class="math-radicand">${renderLatexEscaped(groups[0], depth + 1)}</span></span>`;
+    });
+    html = replaceLatexGroups(html, "text", (groups) => groups[0]);
+    html = replaceLatexGroups(html, "mathrm", (groups) => groups[0]);
+    html = replaceLatexGroups(html, "mathbf", (groups) => `<strong>${groups[0]}</strong>`);
+    html = replaceLatexGroups(html, "operatorname", (groups) => groups[0]);
+    html = replaceLatexGroups(html, "boxed", (groups) => `<span class="math-boxed">${groups[0]}</span>`);
+    html = html.replace(/\\begin\s*\{(?:aligned|array|cases|matrix|pmatrix)\}/g, "");
+    html = html.replace(/\\end\s*\{(?:aligned|array|cases|matrix|pmatrix)\}/g, "");
+    html = html.replace(/\\\\/g, "<br />");
+
+    html = replaceMathScripts(html, "^", "sup", depth);
+    html = replaceMathScripts(html, "_", "sub", depth);
+
+    const symbols = {
+      "\\times": "×",
+      "\\cdot": "·",
+      "\\cdotp": "·",
+      "\\div": "÷",
+      "\\pm": "±",
+      "\\leq": "≤",
+      "\\geq": "≥",
+      "\\neq": "≠",
+      "\\ne": "≠",
+      "\\le": "≤",
+      "\\ge": "≥",
+      "\\approx": "≈",
+      "\\in": "∈",
+      "\\notin": "∉",
+      "\\subset": "⊂",
+      "\\subseteq": "⊆",
+      "\\parallel": "∥",
+      "\\perp": "⊥",
+      "\\infty": "∞",
+      "\\sum": "∑",
+      "\\pi": "π",
+      "\\theta": "θ",
+      "\\alpha": "α",
+      "\\beta": "β",
+      "\\gamma": "γ",
+      "\\Delta": "Δ"
+    };
+    for (const [token, symbol] of Object.entries(symbols)) {
+      html = html.replaceAll(token, symbol);
+    }
+
+    return html.replace(/[{}]/g, "");
+  }
+
+  function replaceLatexGroups(input, command, replacer) {
+    let output = "";
+    let index = 0;
+    const token = `\\${command}`;
+    while (index < input.length) {
+      const start = input.indexOf(token, index);
+      if (start < 0) {
+        output += input.slice(index);
+        break;
+      }
+      const first = readBraceGroup(input, start + token.length);
+      if (!first) {
+        output += input.slice(index, start + token.length);
+        index = start + token.length;
+        continue;
+      }
+      const groups = [first.value];
+      let end = first.end;
+      if (command === "frac") {
+        const second = readBraceGroup(input, end);
+        if (!second) {
+          output += input.slice(index, end);
+          index = end;
+          continue;
+        }
+        groups.push(second.value);
+        end = second.end;
+      }
+      output += input.slice(index, start) + replacer(groups);
+      index = end;
+    }
+    return output;
+  }
+
+  function readBraceGroup(input, startIndex) {
+    let index = startIndex;
+    while (input[index] === " ") index += 1;
+    if (input[index] !== "{") return null;
+    let depth = 0;
+    for (let cursor = index; cursor < input.length; cursor += 1) {
+      if (input[cursor] === "{") depth += 1;
+      if (input[cursor] === "}") depth -= 1;
+      if (depth === 0) {
+        return {
+          value: input.slice(index + 1, cursor),
+          end: cursor + 1
+        };
+      }
+    }
+    return null;
+  }
+
+  function replaceMathScripts(input, marker, tag, depth) {
+    let output = "";
+    let index = 0;
+    while (index < input.length) {
+      const markerIndex = input.indexOf(marker, index);
+      if (markerIndex < 0) {
+        output += input.slice(index);
+        break;
+      }
+      const argument = readScriptArgument(input, markerIndex + marker.length);
+      if (!hasScriptBase(input, markerIndex) || !argument) {
+        output += input.slice(index, markerIndex + marker.length);
+        index = markerIndex + marker.length;
+        continue;
+      }
+      output += input.slice(index, markerIndex);
+      output += `<${tag}>${renderLatexEscaped(argument.value, depth + 1)}</${tag}>`;
+      index = argument.end;
+    }
+    return output;
+  }
+
+  function hasScriptBase(input, markerIndex) {
+    if (markerIndex <= 0) return false;
+    const previous = input[markerIndex - 1];
+    return Boolean(previous && !/\s/.test(previous) && !["^", "_", "(", "[", "{"].includes(previous));
+  }
+
+  function readScriptArgument(input, startIndex) {
+    let index = startIndex;
+    while (input[index] === " ") index += 1;
+    if (input[index] === "{") return readBraceGroup(input, index);
+    if (input[index] === "(") return readBalancedGroup(input, index, "(", ")", true);
+    if (input[index] === "\\") return readLatexCommandArgument(input, index);
+    if ((input[index] === "+" || input[index] === "-") && input[index + 1]) {
+      const signed = readBareScriptToken(input, index + 1);
+      return signed ? { value: input[index] + signed.value, end: signed.end } : null;
+    }
+    return readBareScriptToken(input, index);
+  }
+
+  function readBalancedGroup(input, startIndex, open, close, unwrap = false) {
+    if (input[startIndex] !== open) return null;
+    let depth = 0;
+    for (let cursor = startIndex; cursor < input.length; cursor += 1) {
+      if (input[cursor] === open) depth += 1;
+      if (input[cursor] === close) depth -= 1;
+      if (depth === 0) {
+        return {
+          value: input.slice(startIndex + (unwrap ? 1 : 0), cursor + (unwrap ? 0 : 1)),
+          end: cursor + 1
+        };
+      }
+    }
+    return null;
+  }
+
+  function readLatexCommandArgument(input, startIndex) {
+    const command = input.slice(startIndex).match(/^\\[A-Za-z]+/);
+    if (!command) return { value: input[startIndex], end: startIndex + 1 };
+    let end = startIndex + command[0].length;
+    const groups = [command[0]];
+    while (input[end] === "{") {
+      const group = readBraceGroup(input, end);
+      if (!group) break;
+      groups.push(input.slice(end, group.end));
+      end = group.end;
+    }
+    return { value: groups.join(""), end };
+  }
+
+  function readBareScriptToken(input, startIndex) {
+    const first = input[startIndex];
+    if (!first) return null;
+    if (/[0-9]/.test(first)) {
+      let end = startIndex + 1;
+      while (/[0-9.]/.test(input[end] || "")) end += 1;
+      return { value: input.slice(startIndex, end), end };
+    }
+    if (/[A-Za-z]/.test(first)) {
+      return { value: first, end: startIndex + 1 };
+    }
+    return { value: first, end: startIndex + 1 };
   }
 
   function escapeHtml(value) {

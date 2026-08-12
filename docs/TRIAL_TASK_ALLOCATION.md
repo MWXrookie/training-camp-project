@@ -70,7 +70,7 @@
 | T3-01 | 失败与边界状态 | Done | Codex | 失败态 UI、重试、手动填写、传统错题兜底、保存失败提示 | 空库/空复习队列有下一步按钮；Schema 错误可重试、手动填写或保存为传统错题；IndexedDB 降级和本机保存失败有全局提示；390px/桌面浏览器验证通过 | 后续真实 AI 接入时补真实接口错误码联调 | 无空白页和死循环 |
 | T3-02 | 核心自动测试 | Partial | Codex | `web/trial-smoke.test.mjs`、`web/trial-api-contract.test.mjs` | 最小 smoke 测试已覆盖 Schema 分支、前端真实上传通道、门禁、Schema 失败恢复、手动填写、确认入库、复习重复提交、清空后空库和 console error；本地运行通过 14 项检查；接口契约测试通过 7 项检查 | 迁移 Next.js 后补单元测试和真实接口契约测试 | 核心测试全部通过 |
 | T3-03 | 移动端与视觉检查 | Partial | Codex | 360px/390px/桌面浏览器检查记录 | 首页、错题库、复习、我的在 360px、390px、1280px 均无横向溢出和错误日志；已修复移动端按钮换行 | Founder 后续用真实手机补一次手感验收 | 无遮挡、溢出和错误层级 |
-| T3-04 | 调用保护 | Partial | Codex | 文件上限、每日次数、停用开关、服务端日上限 | 文件类型/大小保护已完成；前端每日 8 次上限、停用开关、清空不重置次数已验证；服务端新增 `TRIAL_DAILY_ANALYSIS_LIMIT` 内存日上限；Key 只在服务端读取 | 后续补全局支出熔断和更持久的服务端限额记录 | 滥用不会无限消耗模型费用 |
+| T3-04 | 调用保护 | Partial | Codex | 文件上限、每日次数、停用开关、服务端日上限 | 文件类型/大小保护已完成；受控试用阶段前端每日 50 次上限、停用开关、清空不重置次数已验证；服务端新增 `TRIAL_DAILY_ANALYSIS_LIMIT` 内存日上限；Key 只在服务端读取 | 后续补全局支出熔断和更持久的服务端限额记录 | 滥用不会无限消耗模型费用 |
 | T3-05 | 受控部署与回滚 | Partial | Founder | Codex | 本地 Node 服务 `http://localhost:4174/` 可访问；新增 `docs/TRIAL_RUNBOOK.md` | Founder 按运行手册在真实试用机器上复核；若要外网访问再决定部署方式 | 可访问、可停用、无密钥泄露 |
 | T3-06 | 试用脚本与记录模板 | Done | Codex | `docs/TRIAL_VALIDATION_RECORD.md` | 已创建试用边界确认、任务脚本、逐人观察表、问题分类、指标汇总、发布阻断项和三选一决策模板 | Founder 招募测试者后按模板记录真实证据 | 可记录行为证据，而非只收集意见 |
 | T3-07 | 3-5 人测试与决策 | Blocked | Founder | Tester / Codex | 已新增 `docs/TRIAL_PRELAUNCH_CHECKLIST.md`；暂无真实题图人工验收和真实测试者记录 | Founder 先用 2-3 张真实脱敏题图完成试用前人工验收，再招募已知情成年测试者；Codex 根据记录整理结论 | 形成继续、调整或停止的版本化结论 |
@@ -355,7 +355,7 @@
 - `node --check web/app.js` 通过；
 - 390px 和桌面浏览器验证无横向溢出和错误日志。
 
-结果：已完成。当前每日上限为 8 次；达到上限、停用开关和清空不重置次数均已验证。
+结果：已完成。受控试用阶段当前每日上限为 50 次；达到上限、停用开关和清空不重置次数均已验证。
 
 ### T3-06A 试用脚本与记录模板（Done）
 
@@ -431,7 +431,7 @@ $env:NODE_PATH='C:\Users\ASUS\.cache\codex-runtimes\codex-primary-runtime\depend
 允许修改：`server.mjs`、`web/app.js`、`docs/API_SPEC.md`。  
 验收：
 
-- 前端保留每日 8 次试用分析上限；
+- 前端保留每日 50 次试用分析上限；
 - 服务端保留独立日上限 `TRIAL_DAILY_ANALYSIS_LIMIT`；
 - 文件大小、类型和告知版本都在服务端复查；
 - Key 不进入浏览器；
@@ -441,7 +441,7 @@ $env:NODE_PATH='C:\Users\ASUS\.cache\codex-runtimes\codex-primary-runtime\depend
 
 ### T3-04C 非题目图片额度保护（Done）
 
-目标：避免上传非题目图片、模型失败或结构化失败时把用户的 8 次试用分析额度错误扣完。  
+目标：避免上传非题目图片、模型失败或结构化失败时把用户的试用分析额度错误扣完。
 允许修改：`web/app.js`、`server.mjs`、`web/trial-schema.json`、`web/trial-api-contract.test.mjs`、`web/trial-smoke.test.mjs`、`docs/API_SPEC.md`、`docs/TRIAL_RESULT_SCHEMA.md`、`docs/PROJECT_STATE.md`、`docs/TRIAL_TASK_ALLOCATION.md`。  
 验收：
 
@@ -451,7 +451,7 @@ $env:NODE_PATH='C:\Users\ASUS\.cache\codex-runtimes\codex-primary-runtime\depend
 - 非题目图片显示明确提示，不提供对同一张图的重复重试；
 - API Schema、契约测试和浏览器冒烟测试覆盖新分支。
 
-结果：已完成。前后端配额计数语义已统一，非题目图片不会一次消耗完 8 次试用额度。
+结果：已完成。前后端配额计数语义已统一，非题目图片不会一次消耗完试用额度。
 
 ### T2-06D 复习后 AI 复盘反馈（Done）
 

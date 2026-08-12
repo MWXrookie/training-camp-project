@@ -106,7 +106,8 @@
                 "rate_limited",
                 "model_failed",
                 "schema_failed",
-                "not_question"
+                "not_question",
+                "multiple_questions"
               ]
             },
             "message": {
