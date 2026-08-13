@@ -75,7 +75,31 @@ GET /api/trial/health
 
 该接口只显示配置是否存在，不返回密钥值。
 
-## 4. 图片分析
+## 4. 受控访问会话
+
+```text
+POST /api/trial/access
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "code": "受控试用口令",
+  "consent_version": "trial_notice_v0.1"
+}
+```
+
+口令只在服务端环境变量 `TRIAL_ACCESS_CODE` 中配置。验证成功后服务端下发 `HttpOnly; SameSite=Strict` 会话 Cookie；`/api/trial/analyze`、`/api/trial/review-feedback` 和 `/api/trial/explanation` 均要求该会话。错误口令有服务端尝试次数限制。
+
+```text
+GET /api/trial/session
+```
+
+该接口只返回当前浏览器是否有有效试用会话，不返回口令或会话值。
+
+## 5. 图片分析
 
 ```text
 POST /api/trial/analyze
@@ -128,7 +152,7 @@ consent_version: trial_notice_v0.1
 - `schema_failed`
 - `not_question`：图片中没有可识别的中学数学错题；本次前端试用额度不扣除。
 
-## 5. 复习后 AI 复盘
+## 6. 复习后 AI 复盘
 
 ```text
 POST /api/trial/review-feedback
@@ -174,7 +198,7 @@ Content-Type: application/json
 
 复盘和学习解析模型调用会限制输出长度，并在模型返回非 JSON 或服务端 5xx 时自动重试一次严格 JSON prompt，减少“记录已保存但 AI 结果偶发缺失”的体验问题。
 
-## 6. 确认后 AI 学习解析
+## 7. 确认后 AI 学习解析
 
 ```text
 POST /api/trial/explanation
@@ -207,7 +231,7 @@ Content-Type: application/json
 
 DeepSeek 只接收确认后的结构化学习数据；图片识别仍使用千问视觉模型。前端会在详情页突出显示个性化解析，并保留重新生成入口。
 
-## 7. 安全与边界
+## 8. 安全与边界
 
 - 服务端不持久化上传图片。
 - 服务端不记录请求体、题干、答案和 Key。

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
@@ -10,13 +11,19 @@ const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
 const MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES + 512 * 1024;
 const MAX_FEEDBACK_REQUEST_BYTES = 128 * 1024;
 const MAX_EXPLANATION_REQUEST_BYTES = 128 * 1024;
+const MAX_ACCESS_REQUEST_BYTES = 16 * 1024;
 const CONSENT_VERSION = "trial_notice_v0.1";
+const TRIAL_SESSION_COOKIE = "recall_trial_session";
+const TRIAL_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ACCESS_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const ACCESS_ATTEMPT_LIMIT = 10;
 const DEFAULT_VISION_TIMEOUT_MS = 75_000;
 const FALLBACK_VISION_TIMEOUT_MS = 45_000;
 const DEFAULT_FEEDBACK_TIMEOUT_MS = 30_000;
 const DEFAULT_EXPLANATION_TIMEOUT_MS = 45_000;
 const ERROR_CODES = new Set([
   "validation_failed",
+  "access_required",
   "consent_required",
   "rate_limited",
   "model_failed",
@@ -68,6 +75,8 @@ let serverExplanationUsage = {
   date: todayKey(),
   count: 0
 };
+const trialSessions = new Map();
+const accessAttempts = new Map();
 
 export function createTrialServer() {
   return createServer(async (req, res) => {
@@ -87,6 +96,7 @@ export function createTrialServer() {
           text_model_configured: Boolean(process.env.DEEPSEEK_API_KEY),
           text_model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
           text_base_url_configured: Boolean(process.env.DEEPSEEK_BASE_URL),
+          access_control_configured: Boolean(process.env.TRIAL_ACCESS_CODE) || process.env.NODE_ENV !== "production",
           trial_limits: {
             analysis: {
               limit: analysisLimit,
@@ -108,19 +118,42 @@ export function createTrialServer() {
         return;
       }
 
+      if (req.method === "GET" && req.url === "/api/trial/session") {
+        sendJson(res, 200, { authenticated: Boolean(readTrialSession(req)) });
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/api/trial/access") {
+        const result = await handleTrialAccess(req);
+        sendJson(res, result.status, result.body, result.headers);
+        return;
+      }
+
       if (req.method === "POST" && req.url === "/api/trial/analyze") {
+        if (!readTrialSession(req)) {
+          sendJson(res, 401, errorResponse("access_required", "请先完成受控访问验证。"));
+          return;
+        }
         const result = await handleTrialAnalyze(req);
         sendJson(res, result.status, result.body);
         return;
       }
 
       if (req.method === "POST" && req.url === "/api/trial/review-feedback") {
+        if (!readTrialSession(req)) {
+          sendJson(res, 401, errorResponse("access_required", "请先完成受控访问验证。"));
+          return;
+        }
         const result = await handleTrialReviewFeedback(req);
         sendJson(res, result.status, result.body);
         return;
       }
 
       if (req.method === "POST" && req.url === "/api/trial/explanation") {
+        if (!readTrialSession(req)) {
+          sendJson(res, 401, errorResponse("access_required", "请先完成受控访问验证。"));
+          return;
+        }
         const result = await handleTrialExplanation(req);
         sendJson(res, result.status, result.body);
         return;
@@ -136,6 +169,43 @@ export function createTrialServer() {
       sendJson(res, 500, errorResponse("model_failed", "分析服务暂时不可用，请稍后重试。", { stage: "server" }));
     }
   });
+}
+
+export async function handleTrialAccess(req) {
+  const attempt = registerAccessAttempt(req);
+  if (!attempt.allowed) {
+    return {
+      status: 429,
+      body: errorResponse("rate_limited", "访问验证尝试次数过多，请稍后再试。", { retry_after_seconds: attempt.retryAfterSeconds })
+    };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse((await readRequestBody(req, MAX_ACCESS_REQUEST_BYTES)).toString("utf8"));
+  } catch {
+    return { status: 400, body: errorResponse("validation_failed", "访问验证请求格式不正确。", { field: "body" }) };
+  }
+
+  const code = typeof payload?.code === "string" ? payload.code.trim() : "";
+  const consentVersion = typeof payload?.consent_version === "string" ? payload.consent_version.trim() : "";
+  if (!code || consentVersion !== CONSENT_VERSION) {
+    return { status: 403, body: errorResponse("consent_required", "请先完成本次试用的访问告知。", { required: CONSENT_VERSION }) };
+  }
+
+  const expected = trialAccessCode();
+  if (!expected || !safeEqual(code, expected)) {
+    return { status: 403, body: errorResponse("access_required", "试用口令不正确。") };
+  }
+
+  const token = randomBytes(32).toString("base64url");
+  trialSessions.set(hashToken(token), Date.now() + TRIAL_SESSION_TTL_MS);
+  pruneTrialSessions();
+  return {
+    status: 200,
+    headers: { "Set-Cookie": buildSessionCookie(token) },
+    body: { authenticated: true, expires_in_seconds: Math.floor(TRIAL_SESSION_TTL_MS / 1000) }
+  };
 }
 
 export async function handleTrialAnalyze(req) {
@@ -1206,7 +1276,8 @@ async function serveStatic(req, res) {
   const body = await readFile(filePath);
   res.writeHead(200, {
     "Content-Type": mime,
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    ...securityHeaders()
   });
   if (req.method !== "HEAD") res.end(body);
   else res.end();
@@ -1422,17 +1493,88 @@ function newRequestId() {
   return `trial_req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function sendJson(res, status, body) {
+function sendJson(res, status, body, headers = {}) {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store"
+    "Cache-Control": "no-store",
+    ...securityHeaders(),
+    ...headers
   });
   res.end(JSON.stringify(body));
 }
 
 function sendText(res, status, body) {
-  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8" });
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...securityHeaders() });
   res.end(body);
+}
+
+function securityHeaders() {
+  return {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+  };
+}
+
+function buildSessionCookie(token) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${TRIAL_SESSION_COOKIE}=${token}; Max-Age=${Math.floor(TRIAL_SESSION_TTL_MS / 1000)}; Path=/; HttpOnly; SameSite=Strict${secure}`;
+}
+
+function readTrialSession(req) {
+  const cookies = String(req.headers.cookie || "");
+  const token = cookies.match(new RegExp(`(?:^|;\\s*)${TRIAL_SESSION_COOKIE}=([^;]+)`))?.[1];
+  if (!token) return false;
+  const key = hashToken(token);
+  const expiresAt = trialSessions.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    trialSessions.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function hashToken(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function trialAccessCode() {
+  return process.env.TRIAL_ACCESS_CODE || (process.env.NODE_ENV === "production" ? "" : "recall");
+}
+
+function registerAccessAttempt(req) {
+  const key = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  const now = Date.now();
+  const previous = accessAttempts.get(key) || { startedAt: now, count: 0 };
+  if (now - previous.startedAt >= ACCESS_ATTEMPT_WINDOW_MS) {
+    accessAttempts.set(key, { startedAt: now, count: 1 });
+    return { allowed: true };
+  }
+  if (previous.count >= ACCESS_ATTEMPT_LIMIT) {
+    return { allowed: false, retryAfterSeconds: Math.ceil((ACCESS_ATTEMPT_WINDOW_MS - (now - previous.startedAt)) / 1000) };
+  }
+  previous.count += 1;
+  accessAttempts.set(key, previous);
+  return { allowed: true };
+}
+
+function pruneTrialSessions() {
+  const now = Date.now();
+  for (const [key, expiresAt] of trialSessions) {
+    if (expiresAt <= now) trialSessions.delete(key);
+  }
+  for (const [key, entry] of accessAttempts) {
+    if (now - entry.startedAt >= ACCESS_ATTEMPT_WINDOW_MS) accessAttempts.delete(key);
+  }
 }
 
 function hasUnexpectedKeys(value, allowed) {
@@ -1464,8 +1606,9 @@ function todayKey() {
 
 export function startServer(port = Number.parseInt(process.env.PORT || "4173", 10)) {
   const server = createTrialServer();
-  server.listen(port, () => {
-    console.log(`Recall AI trial app running at http://localhost:${port}/`);
+  const host = process.env.HOST || "127.0.0.1";
+  server.listen(port, host, () => {
+    console.log(`Recall AI trial app running at http://${host}:${port}/`);
   });
   return server;
 }

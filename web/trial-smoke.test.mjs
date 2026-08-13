@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 
-const BASE_URL = "http://localhost:4174/";
+const BASE_URL = process.env.TRIAL_APP_URL || "http://localhost:4174/";
 const EDGE_PATH = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const PNG_1X1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
@@ -155,6 +155,7 @@ async function runBrowserChecks() {
     `${cropReadoutBefore} -> ${cropReadoutAfter}; box=${JSON.stringify(cropBox)}; hit=${cropHitTarget}`
   );
   await clickVisibleAction(page, "analyze-crop", { wait: 1200 });
+  await page.locator("#draftForm textarea[name='stem']").waitFor({ state: "visible", timeout: 5000 });
   ok("remote upload path creates draft", (await page.locator("#appView").innerText()).includes("确认前不会入库"));
   const dirtyStemValue = await page.locator("#draftForm textarea[name='stem']").inputValue();
   const dirtyHintValue = await page.locator("#draftForm textarea[name='hint']").inputValue();

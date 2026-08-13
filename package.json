@@ -1,0 +1,16 @@
+{
+  "name": "recall-ai-trial",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Recall AI controlled trial web app",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "check": "node --check server.mjs && node --check web/app.js",
+    "test:contract": "node web/trial-api-contract.test.mjs",
+    "test:security": "node web/trial-security.test.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

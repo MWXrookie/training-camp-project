@@ -4,7 +4,6 @@
   const DB_VERSION = 1;
   const STATE_STORE = "state";
   const STATE_KEY = "app-state";
-  const TRIAL_ACCESS_CODE = "recall";
   const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
   const DAILY_ANALYSIS_LIMIT = 50;
   const TRIAL_CONSENT_VERSION = "trial_notice_v0.1";
@@ -114,6 +113,15 @@
 
   async function init() {
     state = await loadState();
+    const session = await requestTrialSession();
+    if (session.authenticated) {
+      state.access = {
+        granted: true,
+        noticeAcceptedAt: state.access?.noticeAcceptedAt || new Date().toISOString()
+      };
+    } else {
+      state.access = defaultAccess();
+    }
     const beforeCount = state.questions.length;
     state.questions = state.questions.filter((question) => !isBuiltInDemoQuestion(question));
     if (state.questions.length !== beforeCount || !state.keepEmptyOnLoad) {
@@ -2938,7 +2946,7 @@
 
     if (action === "accept-access") {
       event.preventDefault();
-      acceptAccess();
+      void acceptAccess();
       return;
     }
     if (action === "dismiss-storage-notice") {
@@ -3317,16 +3325,31 @@
     if (event.key === "4") setView("me");
   }
 
-  function acceptAccess() {
-    const code = sanitize(document.getElementById("accessCode")?.value).toLowerCase();
+  async function acceptAccess() {
+    const code = sanitize(document.getElementById("accessCode")?.value);
     const noticeAccepted = Boolean(document.getElementById("accessNotice")?.checked);
-    if (code !== TRIAL_ACCESS_CODE) {
-      ui.accessError = "试用口令不正确。";
+    if (!noticeAccepted) {
+      ui.accessError = "请先确认你已理解试用边界。";
       render();
       return;
     }
-    if (!noticeAccepted) {
-      ui.accessError = "请先确认你已理解试用边界。";
+    const button = document.querySelector("[data-action='accept-access']");
+    if (button) button.disabled = true;
+    try {
+      const response = await fetch("/api/trial/access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ code, consent_version: TRIAL_CONSENT_VERSION })
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.authenticated) {
+        ui.accessError = payload?.error?.message || "访问验证失败，请稍后重试。";
+        render();
+        return;
+      }
+    } catch {
+      ui.accessError = "访问验证服务暂时不可用，请检查部署地址后重试。";
       render();
       return;
     }
@@ -3337,6 +3360,15 @@
     };
     void persist();
     render();
+  }
+
+  async function requestTrialSession() {
+    try {
+      const response = await fetch("/api/trial/session", { credentials: "same-origin" });
+      return response.ok ? await response.json() : { authenticated: false };
+    } catch {
+      return { authenticated: false };
+    }
   }
 
   async function acceptFile(file) {

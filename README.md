@@ -11,6 +11,7 @@ Recall AI 是一个 MVP 阶段的 AI 辅助错题复习产品。当前版本是�
 - 已接入复习后 AI 复盘
 - 数据保存在当前浏览器本机，暂不支持跨设备同步
 - 试用版只适合受控成年测试，不面向真实未成年人公开使用
+- 可部署到支持 Node.js 18+ 的托管平台，平台默认子域名即可访问，不需要购买域名
 
 详细进度见 [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md)。
 
@@ -83,6 +84,18 @@ http://localhost:4174/
 recall
 ```
 
+## 受控部署
+
+当前版本采用单个 Node 服务同时提供网页和 API。部署到支持 Node.js 18+ 的 Web Service，启动命令填写：
+
+```text
+npm start
+```
+
+部署平台会提供免费默认访问地址，不需要购买域名。生产环境必须设置 `TRIAL_ACCESS_CODE`，不要使用前端代码或启动命令保存口令。完整步骤见 [docs/TRIAL_DEPLOYMENT.md](docs/TRIAL_DEPLOYMENT.md)。
+
+EdgeOne Pages 只适合静态前端托管，不能直接承载当前 `server.mjs` 的长时 AI API；如果使用 EdgeOne，需要另行部署 Node API 或迁移为 Cloud Functions。
+
 ## 测试命令
 
 ```powershell
@@ -124,5 +137,6 @@ node .\web\trial-smoke.test.mjs
 
 - `.env.local` 不进入版本库
 - 模型 Key 只在服务端读取，不下发到浏览器
+- 受控口令由服务端校验，AI API 使用 HttpOnly 会话 Cookie
 - 服务端不持久化上传图片
 - 当前本机数据清空只代表清除浏览器本地数据，不代表第三方供应商删除证明
